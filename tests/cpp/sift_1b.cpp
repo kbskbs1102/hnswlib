@@ -154,12 +154,12 @@ get_gt(
     size_t vecdim,
     vector<std::priority_queue<std::pair<int, labeltype>>> &answers,
     size_t k) {
-    (vector<std::priority_queue<std::pair<int, labeltype >>>(qsize)).swap(answers);
+    (vector<std::priority_queue<std::pair<int, labeltype>>>(qsize)).swap(answers);
     DISTFUNC<int> fstdistfunc_ = l2space.get_dist_func();
     cout << qsize << "\n";
     for (int i = 0; i < qsize; i++) {
         for (int j = 0; j < k; j++) {
-            answers[i].emplace(0.0f, massQA[1000 * i + j]);
+            answers[i].emplace(0.0f, massQA[100 * i + j]);
         }
     }
 }
@@ -178,8 +178,8 @@ test_approx(
     // uncomment to test in parallel mode:
     //#pragma omp parallel for
     for (int i = 0; i < qsize; i++) {
-        std::priority_queue<std::pair<int, labeltype >> result = appr_alg.searchKnn(massQ + vecdim * i, k);
-        std::priority_queue<std::pair<int, labeltype >> gt(answers[i]);
+        std::priority_queue<std::pair<int, labeltype>> result = appr_alg.searchKnn(massQ + vecdim * i, k);
+        std::priority_queue<std::pair<int, labeltype>> gt(answers[i]);
         unordered_set<labeltype> g;
         total += gt.size();
 
@@ -218,16 +218,24 @@ test_vs_recall(
     for (int i = 100; i < 500; i += 40) {
         efs.push_back(i);
     }
+    for (int i = 500; i < 1000; i += 100) {
+        efs.push_back(i);
+    }
+
+    std::cout << "ef\trecall\ttime\thops_per_query\n";
+
     for (size_t ef : efs) {
         appr_alg.setEf(ef);
         StopW stopw = StopW();
-
+        appr_alg.metric_hops = 0;
+        
         float recall = test_approx(massQ, vecsize, qsize, appr_alg, vecdim, answers, k);
         float time_us_per_query = stopw.getElapsedTimeMicro() / qsize;
+        int hops_per_query = appr_alg.metric_hops / qsize;
 
-        cout << ef << "\t" << recall << "\t" << time_us_per_query << " us\n";
-        if (recall > 1.0) {
-            cout << recall << "\t" << time_us_per_query << " us\n";
+        cout << ef << "\t" << recall << "\t" << time_us_per_query << " us\t" << hops_per_query << "\n";
+        if (recall > 0.99) {
+            cout << recall << "\t" << time_us_per_query << " us\t" << hops_per_query << "\n";
             break;
         }
     }
@@ -240,36 +248,39 @@ inline bool exists_test(const std::string &name) {
 
 
 void sift_test1B() {
-    int subset_size_milllions = 200;
-    int efConstruction = 40;
-    int M = 16;
+    int subset_size_milllions = 10;    //1
+    int efConstruction = 40;    
+    int M = 24;     //16
 
-    size_t vecsize = subset_size_milllions * 1000000;
-
-    size_t qsize = 10000;
+    size_t vecsize = subset_size_milllions * 100000;        //1000000
+    size_t update_size = vecsize / 9;
+    size_t qsize = 1000;
     size_t vecdim = 128;
     char path_index[1024];
     char path_gt[1024];
-    const char *path_q = "../bigann/bigann_query.bvecs";
-    const char *path_data = "../bigann/bigann_base.bvecs";
+    // const char *path_q = "../bigann/bigann_query.bvecs";
+    const char *path_q = "../bigann/sift_query.bvecs";
+    // const char *path_data = "../bigann/bigann_base.bvecs";
+    const char *path_data = "../bigann/sift_base.bvecs";
     snprintf(path_index, sizeof(path_index), "sift1b_%dm_ef_%d_M_%d.bin", subset_size_milllions, efConstruction, M);
-
-    snprintf(path_gt, sizeof(path_gt), "../bigann/gnd/idx_%dM.ivecs", subset_size_milllions);
+    // snprintf(path_gt, sizeof(path_gt), "../bigann/gnd/idx_%dM.ivecs", subset_size_milllions);
+    snprintf(path_gt, sizeof(path_gt), "../bigann/gnd/sift_groundtruth.ivecs", subset_size_milllions);
 
     unsigned char *massb = new unsigned char[vecdim];
 
     cout << "Loading GT:\n";
     ifstream inputGT(path_gt, ios::binary);
-    unsigned int *massQA = new unsigned int[qsize * 1000];
+    unsigned int *massQA = new unsigned int[qsize * 100];
     for (int i = 0; i < qsize; i++) {
         int t;
         inputGT.read((char *) &t, 4);
-        inputGT.read((char *) (massQA + 1000 * i), t * 4);
-        if (t != 1000) {
-            cout << "err";
+        if (t != 100) {
+            cout << t << "err\n";
             return;
         }
+        inputGT.read((char *) (massQA + 100 * i), t * 4);
     }
+	cout << "success\n";
     inputGT.close();
 
     cout << "Loading queries:\n";
@@ -280,7 +291,8 @@ void sift_test1B() {
         int in = 0;
         inputQ.read((char *) &in, 4);
         if (in != 128) {
-            cout << "file error";
+			cout << in << std::endl;
+            cout << "file error 1\n";
             exit(1);
         }
         inputQ.read((char *) massb, in);
@@ -288,35 +300,36 @@ void sift_test1B() {
             massQ[i * vecdim + j] = massb[j];
         }
     }
+	cout << "success\n";
     inputQ.close();
 
 
-    unsigned char *mass = new unsigned char[vecdim];
-    ifstream input(path_data, ios::binary);
+    unsigned char *mass = new unsigned char[vecdim];    //128차원 벡터를 저장할 배열
+    ifstream input(path_data, ios::binary);             //base 파일 읽음
     int in = 0;
     L2SpaceI l2space(vecdim);
 
     HierarchicalNSW<int> *appr_alg;
-    if (exists_test(path_index)) {
+    if (exists_test(path_index)) {                      //인덱스 파일이 있는지 확인, 있으면 load, 없으면 build
         cout << "Loading index from " << path_index << ":\n";
         appr_alg = new HierarchicalNSW<int>(&l2space, path_index, false);
         cout << "Actual memory usage: " << getCurrentRSS() / 1000000 << " Mb \n";
     } else {
         cout << "Building index:\n";
-        appr_alg = new HierarchicalNSW<int>(&l2space, vecsize, M, efConstruction);
+        appr_alg = new HierarchicalNSW<int>(&l2space, vecsize*2, M, efConstruction);
 
-        input.read((char *) &in, 4);
+        input.read((char *) &in, 4);                    //파일에서 처음 4바이트 읽음 
         if (in != 128) {
-            cout << "file error";
+            cout << "file error 2\n";
             exit(1);
         }
-        input.read((char *) massb, in);
+        input.read((char *) massb, in);                 //128 바이트를 읽어와 저장
 
         for (int j = 0; j < vecdim; j++) {
-            mass[j] = massb[j] * (1.0f);
+            mass[j] = massb[j] * (1.0f);                //float 형으로 변환
         }
 
-        appr_alg->addPoint((void *) (massb), (size_t) 0);
+        appr_alg->addPoint((void *) (massb), (size_t) 0);   //첫번째 노드 삽입
         int j1 = 0;
         StopW stopw = StopW();
         StopW stopw_full = StopW();
@@ -329,12 +342,12 @@ void sift_test1B() {
             {
                 input.read((char *) &in, 4);
                 if (in != 128) {
-                    cout << "file error";
+                    cout << "file error 3\n";
                     exit(1);
                 }
                 input.read((char *) massb, in);
                 for (int j = 0; j < vecdim; j++) {
-                    mass[j] = massb[j];
+                    mass[j] = massb[j];                 //128바이트를 읽어와 저장
                 }
                 j1++;
                 j2 = j1;
@@ -345,21 +358,58 @@ void sift_test1B() {
                     stopw.reset();
                 }
             }
-            appr_alg->addPoint((void *) (mass), (size_t) j2);
+            appr_alg->addPoint((void *) (mass), (size_t) j2);   //인덱스에 노드 삽입
         }
+        cout << "j1: " << j1 << "\n"; 
         input.close();
         cout << "Build time:" << 1e-6 * stopw_full.getElapsedTimeMicro() << "  seconds\n";
         appr_alg->saveIndex(path_index);
     }
 
 
-    vector<std::priority_queue<std::pair<int, labeltype >>> answers;
-    size_t k = 1;
+// //update
+//     cout << "Parsing gt:\n";
+//     get_gt(massQA, massQ, mass, vecsize, qsize, l2space, vecdim, answers, k);
+//     cout << "Loaded gt\n";
+//     for (int i = 0; i < 1; i++)
+//         test_vs_recall(massQ, vecsize, qsize, *appr_alg, vecdim, answers, k);
+//     cout << "Actual memory usage: " << getCurrentRSS() / 1000000 << " Mb \n";
+
+//     int j3 = vecsize;
+// #pragma omp parallel for
+//     for (int i = 1; i < update_size ; i++) {
+//         unsigned char mass[128];
+//         int j4 = 0;
+// #pragma omp critical
+//         {
+//             input.read((char *) &in, 4);
+//             if (in != 128) {
+//                 cout << "file error 3\n";
+//                 exit(1);
+//             }
+//             input.read((char *) massb, in);
+//             for (int j = 0; j < vecdim; j++) {
+//                 mass[j] = massb[j];                 //128바이트를 읽어와 저장
+//             }
+//             j3++;
+//             j4 = j3;
+//         }
+//         appr_alg->addPoint((void *) (mass), (size_t) j4);   //인덱스에 노드 삽입
+//     }
+//     cout << "j3: " << j3 << "\n"; 
+// //
+
+    vector<std::priority_queue<std::pair<int, labeltype>>> answers;
+    size_t k = 10;
+
     cout << "Parsing gt:\n";
     get_gt(massQA, massQ, mass, vecsize, qsize, l2space, vecdim, answers, k);
     cout << "Loaded gt\n";
     for (int i = 0; i < 1; i++)
         test_vs_recall(massQ, vecsize, qsize, *appr_alg, vecdim, answers, k);
     cout << "Actual memory usage: " << getCurrentRSS() / 1000000 << " Mb \n";
+
+    // std::cout << "max elements: " << appr_alg->max_elements_ << "\n";
+    std::cout << "current elements: " << appr_alg->cur_element_count << "\n";
     return;
 }
