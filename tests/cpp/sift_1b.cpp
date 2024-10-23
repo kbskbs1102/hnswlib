@@ -4,7 +4,6 @@
 #include <chrono>
 #include "../../hnswlib/hnswlib.h"
 
-
 #include <unordered_set>
 
 using namespace std;
@@ -218,9 +217,9 @@ test_vs_recall(
     for (int i = 100; i < 500; i += 40) {
         efs.push_back(i);
     }
-    for (int i = 500; i < 1000; i += 100) {
-        efs.push_back(i);
-    }
+    // for (int i = 500; i < 1000; i += 100) {
+    //     efs.push_back(i);
+    // }
 
     std::cout << "ef\trecall\ttime\thops_per_query\n";
 
@@ -248,37 +247,41 @@ inline bool exists_test(const std::string &name) {
 
 
 void sift_test1B() {
-    int subset_size_milllions = 10;    //1
+    int subset_size_milllions = 10;    //200
     int efConstruction = 40;    
-    int M = 24;     //16
+    int M = 16;     //16
 
-    size_t vecsize = subset_size_milllions * 100000;        //1000000
+    size_t vecsize = subset_size_milllions * 1000000;        //1000000
     size_t update_size = vecsize / 9;
-    size_t qsize = 1000;
+
+    size_t qsize = 10000;
     size_t vecdim = 128;
     char path_index[1024];
     char path_gt[1024];
-    // const char *path_q = "../bigann/bigann_query.bvecs";
-    const char *path_q = "../bigann/sift_query.bvecs";
-    // const char *path_data = "../bigann/bigann_base.bvecs";
-    const char *path_data = "../bigann/sift_base.bvecs";
+    const char *path_q = "../bigann/bigann_query.bvecs";
+    // const char *path_q = "../bigann/sift_query.bvecs";
+    const char *path_data = "../bigann/bigann_base.bvecs";
+    // const char *path_data = "../bigann/sift_base.bvecs";
+
     snprintf(path_index, sizeof(path_index), "sift1b_%dm_ef_%d_M_%d.bin", subset_size_milllions, efConstruction, M);
-    // snprintf(path_gt, sizeof(path_gt), "../bigann/gnd/idx_%dM.ivecs", subset_size_milllions);
-    snprintf(path_gt, sizeof(path_gt), "../bigann/gnd/sift_groundtruth.ivecs", subset_size_milllions);
+
+    snprintf(path_gt, sizeof(path_gt), "../bigann/gnd/idx_%dM.ivecs", subset_size_milllions);
+    // snprintf(path_gt, sizeof(path_gt), "../bigann/gnd/sift_groundtruth.ivecs", subset_size_milllions);
 
     unsigned char *massb = new unsigned char[vecdim];
 
+    //bigann: 1000, sift: 100
     cout << "Loading GT:\n";
     ifstream inputGT(path_gt, ios::binary);
-    unsigned int *massQA = new unsigned int[qsize * 100];
+    unsigned int *massQA = new unsigned int[qsize * 1000];
     for (int i = 0; i < qsize; i++) {
         int t;
         inputGT.read((char *) &t, 4);
-        if (t != 100) {
-            cout << t << "err\n";
+        inputGT.read((char *) (massQA + 1000 * i), t * 4);
+        if (t != 1000) {
+            cout << t << " err\n";
             return;
         }
-        inputGT.read((char *) (massQA + 100 * i), t * 4);
     }
 	cout << "success\n";
     inputGT.close();
@@ -302,7 +305,6 @@ void sift_test1B() {
     }
 	cout << "success\n";
     inputQ.close();
-
 
     unsigned char *mass = new unsigned char[vecdim];    //128차원 벡터를 저장할 배열
     ifstream input(path_data, ios::binary);             //base 파일 읽음
@@ -360,7 +362,6 @@ void sift_test1B() {
             }
             appr_alg->addPoint((void *) (mass), (size_t) j2);   //인덱스에 노드 삽입
         }
-        cout << "j1: " << j1 << "\n"; 
         input.close();
         cout << "Build time:" << 1e-6 * stopw_full.getElapsedTimeMicro() << "  seconds\n";
         appr_alg->saveIndex(path_index);
@@ -400,7 +401,7 @@ void sift_test1B() {
 // //
 
     vector<std::priority_queue<std::pair<int, labeltype>>> answers;
-    size_t k = 10;
+    size_t k = 1;
 
     cout << "Parsing gt:\n";
     get_gt(massQA, massQ, mass, vecsize, qsize, l2space, vecdim, answers, k);
@@ -408,8 +409,11 @@ void sift_test1B() {
     for (int i = 0; i < 1; i++)
         test_vs_recall(massQ, vecsize, qsize, *appr_alg, vecdim, answers, k);
     cout << "Actual memory usage: " << getCurrentRSS() / 1000000 << " Mb \n";
-
+    // cout << "Memory usage: " << appr_alg->calculate_hnsw_memory_usage()/(1024*1024) << " Mb \n";
+    appr_alg -> calculate_memory_per_level();
+    appr_alg -> print_node_count_per_level();
     // std::cout << "max elements: " << appr_alg->max_elements_ << "\n";
     std::cout << "current elements: " << appr_alg->cur_element_count << "\n";
+
     return;
 }

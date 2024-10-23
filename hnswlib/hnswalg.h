@@ -206,7 +206,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
 
     int getRandomLevel(double reverse_size) {
         std::uniform_real_distribution<double> distribution(0.0, 1.0);
-        double r = -log(distribution(level_generator_)) * reverse_size;
+        double r = -log(distribution(level_generator_)) * reverse_size;  //reverse_size: 1/log(M)
         return (int) r;
     }
 
@@ -962,7 +962,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             addPoint(data_point, label, -1);
             return;
         }
-        // check if there is vacant place
+        // check if there is vacant place(지워진 요소가 있음)
         tableint internal_id_replaced;
         std::unique_lock <std::mutex> lock_deleted_elements(deleted_elements_lock);
         bool is_vacant_place = !deleted_elements.empty();
@@ -1137,7 +1137,7 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             }
         }
     }
-
+    
 
     std::vector<tableint> getConnectionsWithLock(tableint internalId, int level) {
         std::unique_lock <std::mutex> lock(link_list_locks_[internalId]);
@@ -1407,6 +1407,47 @@ class HierarchicalNSW : public AlgorithmInterface<dist_t> {
             std::cout << "Min inbound: " << min1 << ", Max inbound:" << max1 << "\n";
         }
         std::cout << "integrity ok, checked " << connections_checked << " connections\n";
+    }
+
+    void calculate_memory_per_level() {
+        size_t total_memory = 0;
+        size_t memory_by_level[maxlevel_ + 1] = {0}; // Array to store memory used at each level
+
+        // Iterate over all elements
+        for (size_t i = 0; i < getCurrentElementCount(); i++) {
+            int level = element_levels_[i];
+
+            // Add memory for level 0 (data_level0_memory_)
+            memory_by_level[0] += size_data_per_element_;
+
+            // Add memory for levels above 0 (linkLists_)
+            for (int l = 1; l <= level; l++) {
+                memory_by_level[l] += size_links_per_element_;
+            }
+        }
+
+        // Print or return memory used at each level
+        for (int l = 0; l <= maxlevel_; l++) {
+            printf("Level %d: %zu bytes\n", l, memory_by_level[l]);
+            total_memory += memory_by_level[l];
+        }
+
+        printf("Total memory usage: %zu bytes\n", total_memory);
+    }
+
+    void print_node_count_per_level() {
+        std::vector<size_t> node_count_per_level(maxlevel_ + 1, 0);  // 각 레벨별 노드 수를 저장할 벡터
+
+        // 모든 노드를 순회하면서 각 레벨에 속하는 노드 수를 계산
+        for (size_t i = 0; i < getCurrentElementCount(); i++) {
+            int level = element_levels_[i];  // 해당 노드의 레벨
+            node_count_per_level[level]++;
+        }
+
+        // 각 레벨별 노드 수 출력
+        for (int l = 0; l <= maxlevel_; l++) {
+            printf("Level %d: %zu nodes\n", l, node_count_per_level[l]);
+        }
     }
 };
 }  // namespace hnswlib
